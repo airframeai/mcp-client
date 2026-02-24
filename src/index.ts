@@ -123,10 +123,8 @@ class AirframeMCPBridge {
         };
       }
 
-      const result = response.result as ToolResult | undefined;
-      return {
-        content: result?.content || [],
-      };
+      // Pass through the entire result from the HTTP server
+      return response.result as any;
     });
   }
 
