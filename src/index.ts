@@ -102,15 +102,15 @@ class AirframeMCPBridge {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      // Include progressToken if provided to enable progress updates
+      // Auto-generate progressToken if not provided to enable progress updates
+      const progressToken =
+        request.params._meta?.progressToken || crypto.randomUUID();
+
       const params: any = {
         name: request.params.name,
         arguments: request.params.arguments,
+        _meta: { progressToken },
       };
-
-      if (request.params._meta?.progressToken) {
-        params._meta = { progressToken: request.params._meta.progressToken };
-      }
 
       const response = await this.forwardRequest({
         jsonrpc: "2.0",
