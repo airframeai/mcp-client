@@ -1,6 +1,6 @@
-# Airframe MCP Client for Claude Desktop
+# Airframe MCP Client
 
-Connect Claude Desktop to Airframe's product intelligence and expert network using the Model Context Protocol (MCP).
+Connect AI agents to Airframe's product intelligence and expert network using the Model Context Protocol (MCP).
 
 ## Features
 
@@ -14,20 +14,16 @@ Connect Claude Desktop to Airframe's product intelligence and expert network usi
 ## Prerequisites
 
 - Node.js 18+ (includes native fetch support)
-- Claude Desktop installed
+- MCP-compatible AI agent (Claude Desktop, Claude Code, etc.)
 - Airframe API key (get one at [airframe.ai/account/api-keys](https://airframe.ai/account/api-keys))
 
 ## Installation
 
 ### Option 1: Using npx (Recommended)
 
-No installation needed! Configure Claude Desktop to use npx:
+No installation needed! Configure your MCP client to use npx.
 
-**macOS**: Open `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Windows**: Open `%APPDATA%\Claude\claude_desktop_config.json`
-
-Add this configuration:
+For example, in your MCP configuration:
 
 ```json
 {
