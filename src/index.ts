@@ -218,14 +218,20 @@ class AirframeMCPBridge {
 
               // Handle progress notifications
               if (message.method === "notifications/progress") {
-                // Forward progress notification to MCP client
-                this.server.notification({
-                  method: "notifications/progress",
-                  params: message.params,
-                });
                 console.error(
-                  `[Airframe MCP] Progress: ${message.params?.progress || 0}%`
+                  `[Airframe MCP] SSE Progress received: token=${message.params?.progressToken}, progress=${message.params?.progress}, total=${message.params?.total}`
                 );
+
+                // Forward progress notification to MCP client
+                try {
+                  await this.server.notification({
+                    method: "notifications/progress",
+                    params: message.params,
+                  });
+                  console.error(`[Airframe MCP] Progress notification forwarded successfully`);
+                } catch (error) {
+                  console.error(`[Airframe MCP] ERROR forwarding progress:`, error);
+                }
               }
               // Handle final result
               else if (message.jsonrpc === "2.0" && message.id === request.id) {
