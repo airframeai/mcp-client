@@ -1,6 +1,6 @@
 {
   "name": "@airframeai/mcp-client",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "Airframe MCP Client - Connect agents to Airframe's product intelligence",
   "type": "module",
   "bin": {
