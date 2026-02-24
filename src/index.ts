@@ -102,14 +102,21 @@ class AirframeMCPBridge {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      // Include progressToken if provided to enable progress updates
+      const params: any = {
+        name: request.params.name,
+        arguments: request.params.arguments,
+      };
+
+      if (request.params._meta?.progressToken) {
+        params._meta = { progressToken: request.params._meta.progressToken };
+      }
+
       const response = await this.forwardRequest({
         jsonrpc: "2.0",
         id: ++this.requestIdCounter,
         method: "tools/call",
-        params: {
-          name: request.params.name,
-          arguments: request.params.arguments,
-        },
+        params,
       });
 
       if (response.error) {
@@ -148,18 +155,15 @@ class AirframeMCPBridge {
         throw new Error(`HTTP ${response.status}: ${text}`);
       }
 
-      const text = await response.text();
+      const contentType = response.headers.get("content-type") || "";
 
-      // Handle SSE (Server-Sent Events) response format
-      if (text.includes("event: message") && text.includes("\ndata: ")) {
-        const parts = text.split("\ndata: ");
-        if (parts.length > 1) {
-          const jsonStr = parts[1].trim();
-          return JSON.parse(jsonStr);
-        }
+      // Handle SSE streaming response
+      if (contentType.includes("text/event-stream")) {
+        return await this.handleSSEStream(response, request);
       }
 
-      // Fallback to regular JSON
+      // Handle regular JSON response
+      const text = await response.text();
       return JSON.parse(text);
     } catch (error) {
       const errorMessage =
@@ -176,6 +180,71 @@ class AirframeMCPBridge {
           message: errorMessage,
         },
       };
+    }
+  }
+
+  private async handleSSEStream(
+    response: Response,
+    request: JsonRpcRequest
+  ): Promise<JsonRpcResponse> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult: JsonRpcResponse | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            if (!data) continue;
+
+            try {
+              const message = JSON.parse(data);
+
+              // Handle progress notifications
+              if (message.method === "notifications/progress") {
+                // Forward progress notification to MCP client
+                this.server.notification({
+                  method: "notifications/progress",
+                  params: message.params,
+                });
+                console.error(
+                  `[Airframe MCP] Progress: ${message.params?.progress || 0}%`
+                );
+              }
+              // Handle final result
+              else if (message.jsonrpc === "2.0" && message.id === request.id) {
+                finalResult = message;
+              }
+            } catch (parseError) {
+              console.error(`[Airframe MCP] Failed to parse SSE data: ${data}`);
+            }
+          }
+        }
+      }
+
+      if (!finalResult) {
+        throw new Error("No final result received from SSE stream");
+      }
+
+      return finalResult;
+    } finally {
+      reader.releaseLock();
     }
   }
 
