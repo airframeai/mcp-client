@@ -17,7 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # Don't set registry-url - let trusted publishing use OIDC
+          registry-url: 'https://registry.npmjs.org'
+          # With id-token: write permission, this enables OIDC auth
 
       - name: Install dependencies
         run: npm ci
