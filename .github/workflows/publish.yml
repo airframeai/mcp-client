@@ -2,7 +2,7 @@ name: Publish to npm
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   publish:
@@ -22,6 +22,18 @@ jobs:
 
       - run: npm run build
 
-      - run: npm publish --provenance --access public
+      - name: Publish to npm
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Comment on release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createReleaseComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: context.payload.release.id,
+              body: '✅ Published to npm: https://www.npmjs.com/package/@airframeai/mcp-client'
+            })
