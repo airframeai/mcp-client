@@ -56,7 +56,78 @@ interface ToolResult {
   content: Array<{ type: string; text: string }>;
 }
 
-class AirframeMCPBridge {
+export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+/**
+ * Validate a server URL for safety. Returns an error string if invalid, or null if valid.
+ */
+export function validateServerUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "--server-url is not a valid URL";
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return "--server-url must use http or https";
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "[::1]" ||
+    host === "169.254.169.254" ||
+    host.endsWith(".internal") ||
+    host.startsWith("10.") ||
+    host.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    return "--server-url must not point to internal/private addresses";
+  }
+
+  return null;
+}
+
+/**
+ * Parse CLI arguments into { apiKey, serverUrl }. Throws on invalid input.
+ * Returns null if --help was requested.
+ */
+export function parseCliArgs(args: string[]): { apiKey: string; serverUrl: string } | null {
+  let apiKey = "";
+  let serverUrl = "https://mcp.airframe.ai/mcp";
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--api-key" && i + 1 < args.length) {
+      apiKey = args[i + 1];
+      i++;
+    } else if (args[i] === "--server-url" && i + 1 < args.length) {
+      const raw = args[i + 1];
+      const error = validateServerUrl(raw);
+      if (error) {
+        throw new Error(`Error: ${error}`);
+      }
+      serverUrl = raw;
+      i++;
+    } else if (args[i] === "--help" || args[i] === "-h") {
+      return null;
+    }
+  }
+
+  if (!apiKey) {
+    throw new Error("Error: --api-key is required");
+  }
+
+  if (!apiKey.startsWith("af_")) {
+    console.error("Warning: API key should start with 'af_'");
+  }
+
+  return { apiKey, serverUrl };
+}
+
+export class AirframeMCPBridge {
   private apiKey: string;
   private serverUrl: string;
   private server: Server;
@@ -152,7 +223,7 @@ class AirframeMCPBridge {
 
       if (!response.ok) {
         const text = await response.text().catch(() => response.statusText);
-        throw new Error(`HTTP ${response.status}: ${text}`);
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
       }
 
       const contentType = response.headers.get("content-type") || "";
@@ -164,6 +235,9 @@ class AirframeMCPBridge {
 
       // Handle regular JSON response
       const text = await response.text();
+      if (text.length > MAX_RESPONSE_SIZE) {
+        throw new Error("Response exceeded maximum allowed size");
+      }
       return JSON.parse(text);
     } catch (error) {
       const errorMessage =
@@ -238,7 +312,7 @@ class AirframeMCPBridge {
                 finalResult = message;
               }
             } catch (parseError) {
-              console.error(`[Airframe MCP] Failed to parse SSE data: ${data}`);
+              console.error(`[Airframe MCP] Failed to parse SSE data (${data.length} bytes)`);
             }
           }
         }
@@ -266,19 +340,9 @@ class AirframeMCPBridge {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
-  // Parse command line arguments
-  let apiKey = "";
-  let serverUrl = "https://mcp.airframe.ai/mcp";
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--api-key" && i + 1 < args.length) {
-      apiKey = args[i + 1];
-      i++;
-    } else if (args[i] === "--server-url" && i + 1 < args.length) {
-      serverUrl = args[i + 1];
-      i++;
-    } else if (args[i] === "--help" || args[i] === "-h") {
-      console.log(`
+  // Check for help flag first
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`
 Airframe MCP Client for Claude Desktop
 
 Usage: airframe-mcp --api-key YOUR_API_KEY [options]
@@ -301,27 +365,40 @@ Claude Desktop Configuration:
     }
   }
 `);
-      process.exit(0);
-    }
+    process.exit(0);
   }
 
-  if (!apiKey) {
-    console.error("Error: --api-key is required\n");
-    console.error("Usage: airframe-mcp --api-key YOUR_API_KEY [--server-url URL]");
-    console.error("\nGet your API key at: https://airframe.ai/account/api-keys");
+  let parsed: { apiKey: string; serverUrl: string };
+  try {
+    const result = parseCliArgs(args);
+    if (result === null) {
+      process.exit(0);
+    }
+    parsed = result;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(msg);
+    if (msg.includes("--api-key is required")) {
+      console.error("Usage: airframe-mcp --api-key YOUR_API_KEY [--server-url URL]");
+      console.error("\nGet your API key at: https://airframe.ai/account/api-keys");
+    }
     process.exit(1);
   }
 
-  if (!apiKey.startsWith("af_")) {
-    console.error("Warning: API key should start with 'af_'");
-  }
-
-  const bridge = new AirframeMCPBridge(apiKey, serverUrl);
+  const bridge = new AirframeMCPBridge(parsed.apiKey, parsed.serverUrl);
   await bridge.run();
 }
 
-// Run if this is the main module
-main().catch((error) => {
-  console.error("[Airframe MCP] Fatal error:", error);
-  process.exit(1);
-});
+// Run if this is the main module (not when imported by tests)
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const thisFile = fileURLToPath(import.meta.url);
+const entryFile = process.argv[1] ? realpathSync(process.argv[1]) : "";
+
+if (thisFile === entryFile) {
+  main().catch((error) => {
+    console.error("[Airframe MCP] Fatal error:", error);
+    process.exit(1);
+  });
+}
