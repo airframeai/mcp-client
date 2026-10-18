@@ -1,167 +1,72 @@
-# Airframe MCP Client
+# Airframe MCP client
 
-Connect AI agents to Airframe's product intelligence and expert network using the Model Context Protocol (MCP).
+`@airframeai/mcp-client` is a Node.js stdio-to-HTTP bridge. It lets a stdio MCP
+host request tools from a remote Airframe server using an API key. It does not
+implement the catalog, research agents, or OAuth sign-in itself.
 
-## Features
+The server lives in the separate
+[Airframe repository](https://github.com/airframeai/airframe/tree/main/packages/mcp-server).
+The bridge forwards `tools/list` and `tools/call`; the connected server determines
+available tools, permissions, quotas, and results. A copied tool list here would
+drift from the server.
 
-- **Product Search**: Find software products by keyword, category, or department
-- **Product Details**: Deep dive into specific products with comprehensive data
-- **Product Comparison**: Side-by-side comparison of 2-5 products
-- **Category Browser**: Explore Airframe's software category taxonomy
-- **Expert Network**: Discover practitioners with specific product expertise
-- **AI Intelligence**: Ask complex questions powered by Airframe's market research
+## Start here
 
-## Prerequisites
+- [CUSTOMER_SETUP.md](CUSTOMER_SETUP.md): stdio-host configuration, credentials, and troubleshooting.
+- [ARCHITECTURE.md](ARCHITECTURE.md): source map, protocol behavior, tests, and build/release paths.
+- [src/index.ts](src/index.ts): CLI parser, URL checks, bridge, and executable entrypoint.
+- [package.json](package.json): package name, binary, engine declaration, dependencies, and scripts.
 
-- Node.js 18+ (includes native fetch support)
-- MCP-compatible AI agent (Claude Desktop, Claude Code, etc.)
-- Airframe API key (get one at [airframe.ai/account/api-keys](https://airframe.ai/account/api-keys))
+## Configuration example
 
-## Installation
-
-### Option 1: Using npx (Recommended)
-
-No installation needed! Configure your MCP client to use npx.
-
-For example, in your MCP configuration:
+For a host that accepts a `mcpServers` stdio configuration:
 
 ```json
 {
   "mcpServers": {
     "airframe": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@airframe/mcp-client",
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
+      "args": ["-y", "@airframeai/mcp-client", "--api-key", "YOUR_API_KEY_HERE"]
     }
   }
 }
 ```
 
-### Option 2: Global Installation
+Replace the placeholder with a key for the target environment and keep the local
+configuration private. The default URL in the source is
+`https://mcp.airframe.ai/mcp`. API-key availability depends on server configuration;
+an OAuth-only endpoint rejects this bridge's authentication method. Native remote
+HTTP/OAuth connections do not require this bridge.
 
-```bash
-npm install -g @airframe/mcp-client
-```
+## CLI contract
 
-Then configure Claude Desktop:
+| Argument | Checked-in behavior |
+| --- | --- |
+| `--api-key KEY` | Required nonempty value; a missing `af_` prefix produces a warning, not local rejection. The server validates the key. |
+| `--server-url URL` | Optional override; accepts HTTP/HTTPS syntax subject to the hostname checks in `validateServerUrl`. Localhost and listed private/internal addresses are rejected. |
+| `--help`, `-h` | Prints help and exits without starting the bridge; no API key is needed. |
 
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "airframe-mcp",
-      "args": ["--api-key", "YOUR_API_KEY_HERE"]
-    }
-  }
-}
-```
-
-### Option 3: Standalone Script
-
-Download the bundled script from the releases page and run directly with Node:
-
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "node",
-      "args": [
-        "/path/to/airframe-mcp-client.js",
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
-    }
-  }
-}
-```
-
-## Configuration Options
-
-- `--api-key`: Your Airframe API key (required, starts with `af_`)
-- `--server-url`: MCP server URL (optional, defaults to `https://mcp.airframe.ai/mcp`)
-
-## Usage
-
-After configuring Claude Desktop, restart the application. You can then use Airframe tools in your conversations:
-
-```
-> Search for CRM products and show me the top 3
-
-> Compare Salesforce vs HubSpot
-
-> Find experts who use Figma
-
-> What are the best project management tools for remote teams?
-```
-
-## Available Tools
-
-- `search_products` - Find software products by keyword, category, or department
-- `get_product_details` - Deep dive on a specific product (use its slug)
-- `compare_products` - Side-by-side comparison of 2-5 products
-- `browse_categories` - Explore Airframe's software category taxonomy
-- `find_experts` - Discover practitioners with specific product expertise
-- `ask_airframe` - AI-powered market intelligence for complex questions
-
-## Troubleshooting
-
-### Check Node Version
-
-```bash
-node --version  # Should be 18 or higher
-```
-
-### View Claude Desktop Logs
-
-**macOS**: `~/Library/Logs/Claude/mcp-server-airframe.log`
-
-**Windows**: `%LOCALAPPDATA%\Claude\Logs\mcp-server-airframe.log`
-
-### Test the Client Manually
-
-```bash
-# Using npx
-npx -y @airframeai/mcp-client --api-key YOUR_API_KEY --help
-
-# Or after global install
-airframe-mcp --api-key YOUR_API_KEY --help
-```
-
-### Common Issues
-
-**"Command not found"**: Make sure Node.js 18+ is installed and in your PATH
-
-**"Invalid API key"**: Verify your API key starts with `af_` and is active at [airframe.ai/account/api-keys](https://airframe.ai/account/api-keys)
-
-**Windows npx issues**: On Windows, you may need to use `cmd` wrapper:
-```json
-{
-  "command": "cmd",
-  "args": ["/c", "npx", "-y", "@airframe/mcp-client", "--api-key", "YOUR_API_KEY"]
-}
-```
+The CLI does not read an API-key environment variable. Supply the supported
+argument through the host configuration. See the [architecture guide](ARCHITECTURE.md)
+for the URL check's scope, JSON/SSE handling, and error behavior.
 
 ## Development
 
+From the repository root, using the checked-in lockfile:
+
 ```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
+npm ci
+npm test
 npm run build
-
-# Create standalone bundle
 npm run bundle
 ```
 
-## Support
+The package declares Node `>=18.0.0`; the release workflow selects Node 24.
+`npm test` runs Vitest once with mocked transport/fetch paths; it does not prove
+live server access. `build` emits `dist/index.js` and adds a shebang. `bundle`
+separately creates `dist/airframe-mcp-client.js`; it is not part of the release
+workflow. No fixed bundle size or published asset availability is implied.
 
-- Email: support@airframe.ai
-
-## License
-
-MIT
+A documentation-only edit needs link, Markdown, and source/manifest validation;
+it does not need dependency installation, an authenticated connection, publishing,
+or a release tag. License: [MIT](LICENSE).

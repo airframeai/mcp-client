@@ -1,204 +1,96 @@
-# Airframe MCP for Claude Desktop (Node.js)
+# Configure the Airframe stdio bridge
 
-Connect Claude Desktop to Airframe's product intelligence and expert network.
+Use this guide for `@airframeai/mcp-client`. A host with native remote HTTP/OAuth
+support can connect to the server directly instead. The bridge sends `X-API-Key`;
+it does not launch a browser, obtain OAuth tokens, or make an OAuth-only server
+accept API keys.
 
-## Prerequisites
+## Requirements
 
-- Node.js 18+ (includes native fetch support)
-- Claude Desktop installed
+- Node/npm available to the process launching the bridge. [package.json](package.json) declares Node `>=18.0.0`; check the actual executable selected by the host.
+- A stdio MCP host and its local server configuration.
+- A valid Airframe API key for the selected endpoint/environment. Use Airframe's account controls to obtain/manage it; never commit the key or paste it into a shared diagnostic.
 
-## Installation
+## Choose a command
 
-### 1. Check Node.js Version
+The [README example](README.md#configuration-example) uses `npx` with the correct
+package scope, `@airframeai/mcp-client`. If a controlled version is needed, supply
+an explicit published version in that package argument rather than assuming npx
+always fetches the newest code.
 
-```bash
-node --version  # Should be 18.0.0 or higher
-```
-
-If you don't have Node.js 18+, download it from [nodejs.org](https://nodejs.org/)
-
-### 2. Get Your API Key
-
-1. Visit [airframe.ai/account/api-keys](https://airframe.ai/account/api-keys)
-2. Sign in or create an account
-3. Click "Create API Key"
-4. **Copy the key immediately** (shown only once!)
-
-### 3. Choose Installation Method
-
-#### Option A: Using npx (Recommended - No Installation)
-
-Open your Claude Desktop config file:
-- **Mac**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-Add this to the `mcpServers` section:
-
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@airframeai/mcp-client",
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
-    }
-  }
-}
-```
-
-**Windows users**: If you get connection errors, use this instead:
-
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@airframeai/mcp-client",
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
-    }
-  }
-}
-```
-
-#### Option B: Standalone Script (No npm Required)
-
-1. Download the standalone script: [airframe-mcp-client.js](https://github.com/airframehq/airframe/releases/latest/download/airframe-mcp-client.js)
-2. Save it to a permanent location (e.g., `~/airframe-mcp-client.js`)
-3. Configure Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "node",
-      "args": [
-        "/full/path/to/airframe-mcp-client.js",
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
-    }
-  }
-}
-```
-
-**Replace `/full/path/to/` with the actual path!**
-
-**Mac example**: `/Users/yourname/airframe-mcp-client.js`
-**Windows example**: `C:\\Users\\yourname\\airframe-mcp-client.js`
-
-#### Option C: Global Installation
+A global installation exposes the `airframe-mcp` binary:
 
 ```bash
 npm install -g @airframeai/mcp-client
 ```
 
-Then configure Claude Desktop:
+Then a stdio server entry can use:
 
 ```json
 {
-  "mcpServers": {
-    "airframe": {
-      "command": "airframe-mcp",
-      "args": [
-        "--api-key",
-        "YOUR_API_KEY_HERE"
-      ]
-    }
-  }
+  "command": "airframe-mcp",
+  "args": ["--api-key", "YOUR_API_KEY_HERE"]
 }
 ```
 
-### 4. Restart Claude Desktop
+For a locally built standalone file, use an absolute path:
 
-Quit and relaunch Claude Desktop to load the configuration.
-
-## Usage
-
-In Claude Desktop, you'll now have access to Airframe tools:
-
-- **search_products** - Find software products by keyword, category, or department
-- **get_product_details** - Deep dive on a specific product
-- **compare_products** - Side-by-side comparison of products
-- **browse_categories** - Explore software category taxonomy
-- **find_experts** - Discover practitioners with product expertise
-- **ask_airframe** - AI-powered market intelligence
-
-Try asking:
-> "Search for CRM products and show me the top 3"
-> "Find experts who use Salesforce"
-> "Compare Slack vs Microsoft Teams"
-
-## Troubleshooting
-
-### "Command not found" or script won't run
-
-Make sure Node.js 18+ is installed:
-```bash
-node --version
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/airframe-mcp-client.js", "--api-key", "YOUR_API_KEY_HERE"]
+}
 ```
 
-### "Invalid API key" error
+[Build instructions](ARCHITECTURE.md#build-and-release) describe how that file is
+created. The checked-in release workflow does not build/upload a standalone asset;
+this guide does not assume a download exists at an old release URL.
 
-- Verify your API key starts with `af_`
-- Check it's active at [airframe.ai/account/api-keys](https://airframe.ai/account/api-keys)
-- Make sure there are no extra spaces or quotes in the config
+Keep credentials in the host's private local configuration. `--api-key` is a
+command argument, so treat configuration and process diagnostics as sensitive.
+The client has no implemented API-key environment-variable option.
 
-### Windows "Connection closed" errors
+## Select the server
 
-Use the `cmd /c` wrapper shown in Option A above.
+Without an override, the bridge uses `https://mcp.airframe.ai/mcp`. Add
+`"--server-url", "https://your-approved-server.example/mcp"` to the argument array
+only when selecting a different API-key-enabled endpoint.
 
-### Check Logs
+The CLI rejects localhost and the specific private/internal hostnames/addresses
+listed in [validateServerUrl](src/index.ts). A local `http://localhost:8001/mcp`
+example is incompatible with that check. HTTP is accepted by the parser, so use
+an approved HTTPS endpoint for a credentialed remote connection.
 
-Claude Desktop logs are at:
-- **Mac**: `~/Library/Logs/Claude/mcp-server-airframe.log`
-- **Windows**: `%LOCALAPPDATA%\Claude\Logs\mcp-server-airframe.log`
+The key, server identity, catalog environment, and OAuth policy must agree. A
+valid key for one environment does not prove access to another; an API key also
+does not establish access to OAuth-only market-report tools.
 
-Look for lines starting with `[Airframe MCP]`
+## Check configuration
 
-### Test Manually
+Use the binary's help path without credentials:
 
 ```bash
-# Test the standalone script
-node /path/to/airframe-mcp-client.js --help
-
-# Or test with npx
 npx -y @airframeai/mcp-client --help
 ```
 
-## Advanced Configuration
+This checks that the package can start and print help. It does not authenticate
+or fetch tools. Load the configuration using the host's documented mechanism,
+then inspect its tool list and a permitted request to verify remote access.
+Tool availability comes from the server, not a fixed list embedded in the bridge.
 
-### Custom Server URL
+## Troubleshooting
 
-To use a different server (e.g., for testing):
+| Symptom | Inspect |
+| --- | --- |
+| Command not found | Node/npm or installed binary PATH in the host process, not just an interactive shell |
+| `--api-key is required` | A nonempty argument value; no environment-variable fallback exists |
+| `--server-url` rejected | URL syntax/scheme and the literal hostname restrictions in the CLI |
+| HTTP 401/403 | Key/environment, endpoint OAuth-only policy, and server authorization |
+| No tools / unexpected tools | Connected endpoint and `tools/list`; old comparison/category tools are not guaranteed |
+| Timeout / stream error | Network/server response and the 120-second request timeout |
 
-```json
-{
-  "mcpServers": {
-    "airframe": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@airframeai/mcp-client",
-        "--api-key",
-        "YOUR_API_KEY_HERE",
-        "--server-url",
-        "http://localhost:8001/mcp"
-      ]
-    }
-  }
-}
-```
-
-## Support
-
-Questions? Email support@airframe.ai
+The bridge logs diagnostics to stderr with an `[Airframe MCP]` prefix; the host
+chooses where stderr is stored. Keep stdout for MCP traffic. Error messages can
+contain a truncated upstream HTTP body or network details, so redact logs before
+sharing. Client help/launch success is separate from server health, identity,
+quota, report entitlement, and tool completion.

@@ -1,220 +1,103 @@
-# Airframe MCP Node.js Client Architecture
+# MCP client architecture
 
-## Overview
+The package is a small transport bridge in the separate
+[airframeai/mcp-client](https://github.com/airframeai/mcp-client) repository.
+The remote server lives in
+[airframeai/airframe](https://github.com/airframeai/airframe/tree/main/packages/mcp-server).
+Server tool descriptions, auth/RBAC, data access, agents, quotas, and auditing are
+owned there. Read the [setup guide](CUSTOMER_SETUP.md) for host configuration.
 
-This is a self-contained Node.js/TypeScript implementation of the Airframe MCP client that bridges Claude Desktop's stdio transport to Airframe's HTTP MCP server.
+## Source map
 
-## How It Works
+| Path | Responsibility |
+| --- | --- |
+| [src/index.ts](src/index.ts) | `validateServerUrl`, `parseCliArgs`, `AirframeMCPBridge`, and guarded CLI startup |
+| [package.json](package.json), [package-lock.json](package-lock.json) | Binary/package contract, scripts, dependency declarations, and locked install inputs |
+| [tsconfig.json](tsconfig.json) | ES2022 module compilation, declarations/maps, and `src` → `dist` output |
+| [add-shebang.js](add-shebang.js) | Executable shebang/permissions for `dist/index.js` |
+| [build-standalone.js](build-standalone.js) | Separate esbuild bundle targeting Node 18, with shebang/permissions |
+| [vitest.config.ts](vitest.config.ts), [test/](test/) | Node test environment, `test/**/*.test.ts`, mocks, and protocol/CLI cases |
+| [.github/workflows/publish.yml](.github/workflows/publish.yml) | Tag-triggered build, npm publish, and GitHub release creation |
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        Claude Desktop                        │
-│  (MCP Client - sends JSON-RPC requests via stdio)           │
-└───────────────────────────┬──────────────────────────────────┘
-                            │
-                  stdio (stdin/stdout)
-                  JSON-RPC 2.0 protocol
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│              @airframe/mcp-client (this package)             │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  StdioServerTransport (@modelcontextprotocol/sdk)      │ │
-│  │  - Reads JSON-RPC from stdin                           │ │
-│  │  - Writes JSON-RPC to stdout                           │ │
-│  └──────────────────┬─────────────────────────────────────┘ │
-│                     │                                        │
-│                     ▼                                        │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  AirframeMCPBridge                                     │ │
-│  │  - Receives tools/list and tools/call requests        │ │
-│  │  - Forwards to HTTP MCP server with API key           │ │
-│  │  - Translates responses back to MCP protocol          │ │
-│  └──────────────────┬─────────────────────────────────────┘ │
-│                     │                                        │
-└─────────────────────┼────────────────────────────────────────┘
-                      │
-                HTTPS POST
-                X-API-Key header
-                      │
-                      ▼
-┌──────────────────────────────────────────────────────────────┐
-│        Airframe HTTP MCP Server (mcp.airframe.ai)           │
-│  - Authentication & rate limiting                            │
-│  - MongoDB, GraphQL, Typesense access                       │
-│  - Returns product data, expert info, etc.                  │
-└──────────────────────────────────────────────────────────────┘
-```
+## Request path
 
-## Key Components
+1. The SDK's `StdioServerTransport` connects the local host to an SDK `Server`.
+   This server advertises tool capability and implements `tools/list` and
+   `tools/call` handlers. It is not a transparent proxy for every MCP method.
+2. Each forwarded request gets an incrementing request ID and an HTTP POST to
+   the configured endpoint, with JSON content type, JSON/SSE acceptance, and
+   `X-API-Key`. Calls carry a supplied progress token or a generated UUID.
+3. Native `fetch` uses a 120-second abort timeout. Content type selects JSON
+   parsing or the SSE reader. The result is returned through the local SDK.
 
-### 1. StdioServerTransport
-- Provided by `@modelcontextprotocol/sdk`
-- Handles the stdio transport layer
-- Reads JSON-RPC requests from stdin
-- Writes JSON-RPC responses to stdout
-- Automatically handles protocol details
+The bridge does not forward an upstream initialize handshake, OAuth discovery,
+resources, or prompts. Local protocol negotiation belongs to the SDK server.
+No result cache or automatic request retry is implemented in the bridge.
 
-### 2. AirframeMCPBridge
-- Our custom bridge implementation
-- Implements two MCP request handlers:
-  - `tools/list` - Returns available tools
-  - `tools/call` - Executes a tool and returns results
-- Forwards all requests to HTTP server via fetch
-- Handles both regular JSON and SSE responses
-- Adds API key authentication
+## Responses and errors
 
-### 3. HTTP Client (Native Fetch)
-- Uses Node.js 18+ native fetch (no external deps!)
-- Sets appropriate headers (Content-Type, API Key)
-- 2-minute timeout for AI agent calls
-- Parses both JSON and SSE response formats
+For JSON responses, the client reads text, checks its JavaScript string length
+against `MAX_RESPONSE_SIZE` (`10 * 1024 * 1024`), then parses it. This check is
+after buffering; it is not a transport byte limit or a bound on SSE responses.
 
-## Response Format Handling
+For `text/event-stream`, the reader decodes chunks, retains an incomplete line,
+and parses JSON on lines beginning with `data:` followed by a space. It forwards progress notifications,
+retains a final JSON-RPC response whose ID matches the request, and returns after
+the stream ends. No matching final response is an error. It does not implement
+all SSE framing/resumption forms or impose the JSON-path size check on the stream.
 
-The HTTP MCP server can return responses in two formats:
+HTTP failures include status and at most 200 characters of the response body.
+Fetch/parse/timeout failures become JSON-RPC error `-32603` and stderr messages.
+The `tools/list` handler throws a returned error; `tools/call` turns it into text
+content prefixed `Error:`. Do not assume the latter sets `isError` or preserves
+all upstream JSON-RPC error fields. Successful call results pass through.
 
-### Regular JSON
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      { "type": "text", "text": "..." }
-    ]
-  }
-}
-```
+## CLI and security boundaries
 
-### Server-Sent Events (SSE)
-```
-event: message
-data: {"jsonrpc":"2.0","id":1,"result":{...}}
-```
+The CLI requires a nonempty `--api-key`; it only warns if the prefix is not
+`af_`. Unknown flags are not rejected by the current parser. Server-side identity
+and policy remain authoritative.
 
-The bridge handles both automatically by checking for `event: message` in the response text.
+`--server-url` checks HTTP/HTTPS and rejects a literal hostname list/patterns,
+including localhost, common private IPv4 ranges, metadata IP, and `.internal`.
+This is a CLI check, not a general network isolation guarantee: the constructor
+accepts its URL directly, and the check does not resolve DNS or revalidate fetch
+redirect destinations. It also accepts HTTP. Preserve the tests for the behavior
+actually implemented rather than documenting a broader guarantee.
 
-## Dependencies
+The bridge sends credentials as a header, while the local launch receives them
+in arguments. Diagnostics may expose upstream error text/network details; there
+is no blanket log-redaction guarantee. Production endpoint URLs in docs are
+configuration defaults, not evidence of current service availability.
 
-### Production
-- `@modelcontextprotocol/sdk` (^1.0.4) - Official MCP SDK
-  - Provides Server, Transport, and protocol types
-  - Handles JSON-RPC serialization/deserialization
-  - Manages stdio communication
+## Build and release
 
-### Development
-- `typescript` (^5.7.3) - TypeScript compiler
-- `esbuild` (^0.24.2) - Fast bundler for standalone build
-- `@types/node` (^22.10.5) - Node.js type definitions
+From this repository root:
 
-## Build Process
-
-### Regular Build (npm package)
 ```bash
+npm ci
+npm test
 npm run build
-```
-1. Compiles TypeScript → JavaScript (ES modules)
-2. Adds shebang to make executable
-3. Outputs to `dist/index.js` with source maps
-
-### Standalone Bundle
-```bash
 npm run bundle
 ```
-1. Uses esbuild to bundle all dependencies
-2. Inlines `@modelcontextprotocol/sdk` code
-3. Creates single 696KB file
-4. Adds shebang for direct execution
-5. Outputs to `dist/airframe-mcp-client.js`
 
-The standalone bundle is completely self-contained and can be distributed as a single file.
+`build` compiles TypeScript, then makes `dist/index.js` executable. Compilation
+also emits declarations and source maps per tsconfig. `bundle` separately emits
+`dist/airframe-mcp-client.js`; its size depends on the actual build inputs.
 
-## Installation Methods
+`package.json` exposes `airframe-mcp` at `dist/index.js` and packages `dist` plus
+README. `prepublishOnly` runs the regular build. The release workflow triggers on
+`v*` tags, selects Node 24, installs with `npm ci`, builds, publishes with provenance,
+and creates a GitHub release. It does not run tests, invoke `bundle`, or upload a
+standalone release asset. A documentation PR does not authorize tagging or publishing.
 
-### 1. npx (Recommended)
-```json
-"command": "npx",
-"args": ["-y", "@airframe/mcp-client", "--api-key", "..."]
-```
-- No installation required
-- Always uses latest version
-- Downloads on first use, then caches
+## Tests and documentation validation
 
-### 2. Global Install
-```bash
-npm install -g @airframe/mcp-client
-```
-- Installs as system command
-- Uses `airframe-mcp` binary
-- Version pinned until updated
+`npm test` runs Vitest once; `npm run test:coverage` uses its V8 coverage provider.
+The tests cover CLI parsing, URL checks, request/error handling, JSON/SSE paths,
+and security-related boundaries using mocks. Read the test's fetch/SDK mocks
+before treating a result as a real host-to-server integration test.
 
-### 3. Standalone Script
-```json
-"command": "node",
-"args": ["/path/to/airframe-mcp-client.js", "--api-key", "..."]
-```
-- Single file, no npm required
-- Can be downloaded directly
-- Perfect for air-gapped or restricted environments
-
-## Error Handling
-
-### Network Errors
-- HTTP errors (4xx, 5xx) are caught and converted to JSON-RPC errors
-- Connection failures return error code -32603
-- Timeouts (120s) abort the request
-
-### Protocol Errors
-- Invalid JSON responses are caught
-- Missing fields are handled gracefully
-- Error messages logged to stderr (visible in Claude Desktop logs)
-
-### Logging
-All logs go to stderr with `[Airframe MCP]` prefix, making them visible in:
-- Mac: `~/Library/Logs/Claude/mcp-server-airframe.log`
-- Windows: `%LOCALAPPDATA%\Claude\Logs\mcp-server-airframe.log`
-
-## Why Node.js Over Python?
-
-### Advantages
-1. **Simpler distribution** - npx eliminates manual downloads
-2. **Native fetch** - No external HTTP library needed (Node 18+)
-3. **Faster startup** - Node.js starts faster than Python
-4. **Better ecosystem** - npm/npx is familiar to web developers
-5. **Cross-platform** - Works identically on Mac, Windows, Linux
-
-### Comparison to Python Version
-
-| Feature | Node.js | Python |
-|---------|---------|--------|
-| Dependencies | 1 (MCP SDK) | 2 (mcp, httpx) |
-| Installation | npx (zero-install) | pip install |
-| Startup time | ~50ms | ~200ms |
-| Bundle size | 696KB (self-contained) | N/A |
-| HTTP client | Native fetch | httpx |
-
-## Security
-
-- API keys passed via CLI args (not env vars for Claude Desktop)
-- HTTPS only for production server
-- No sensitive data logged
-- Timeouts prevent hanging connections
-- API key validation on server side
-
-## Performance
-
-- Lazy loading of MCP SDK (only when needed)
-- Persistent connection reuse via native fetch
-- Minimal memory footprint (~30MB)
-- Fast tool listing (cached on server)
-
-## Future Enhancements
-
-Potential improvements:
-- [ ] Streaming responses for large datasets
-- [ ] Response caching for repeated queries
-- [ ] Connection pooling for concurrent requests
-- [ ] Telemetry for usage analytics
-- [ ] WebSocket transport option
+For docs, validate paths/anchors, JSON configuration examples, and factual claims
+against source/manifests. Runtime changes need their relevant tests; documentation
+maintenance does not need a live key, server call, package publish, or release.
