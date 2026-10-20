@@ -21,6 +21,11 @@ owned there. Read the [setup guide](CUSTOMER_SETUP.md) for host configuration.
 
 ## Request path
 
+For a reader, the connection is: assistant → local bridge → remote Airframe
+server → tool result back to the assistant. The local bridge discovers tool
+names and forwards calls; the remote server decides what those tools can do.
+The steps below identify the corresponding code behavior.
+
 1. The SDK's `StdioServerTransport` connects the local host to an SDK `Server`.
    This server advertises tool capability and implements `tools/list` and
    `tools/call` handlers. It is not a transparent proxy for every MCP method.

@@ -1,8 +1,15 @@
 # Airframe MCP client
 
-`@airframeai/mcp-client` is a Node.js stdio-to-HTTP bridge. It lets a stdio MCP
-host request tools from a remote Airframe server using an API key. It does not
-implement the catalog, research agents, or OAuth sign-in itself.
+`@airframeai/mcp-client` connects a desktop assistant to Airframe when the
+assistant launches tools as local programs using the Model Context Protocol (MCP).
+The assistant starts this Node.js
+process and talks to it through standard input/output (stdio); the process sends
+requests to the remote Airframe server over HTTP using an API key.
+
+The remote server supplies product information, research, and expert tools.
+This client translates the connection; it does not contain that intelligence or
+perform OAuth sign-in. An assistant with native remote HTTP/OAuth support can
+connect directly without this bridge.
 
 The server lives in the separate
 [Airframe repository](https://github.com/airframeai/airframe/tree/main/packages/mcp-server).

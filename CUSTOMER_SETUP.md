@@ -1,4 +1,4 @@
-# Configure the Airframe stdio bridge
+# Connect a desktop assistant to Airframe
 
 Use this guide for `@airframeai/mcp-client`. A host with native remote HTTP/OAuth
 support can connect to the server directly instead. The bridge sends `X-API-Key`;
@@ -10,6 +10,23 @@ accept API keys.
 - Node/npm available to the process launching the bridge. [package.json](package.json) declares Node `>=18.0.0`; check the actual executable selected by the host.
 - A stdio MCP host and its local server configuration.
 - A valid Airframe API key for the selected endpoint/environment. Use Airframe's account controls to obtain/manage it; never commit the key or paste it into a shared diagnostic.
+
+## Put the configuration in the host
+
+The host is the assistant application that starts this process. Open its local
+MCP server configuration and add an `airframe` entry under `mcpServers` if it uses
+that configuration shape. The [README](README.md#configuration-example) shows the
+complete object; the global/standalone examples below show just the server entry
+to put at `mcpServers.airframe`. Merge with existing entries rather than replacing
+the whole file.
+
+For Claude Desktop on macOS, the checked-in CLI help names
+`~/Library/Application Support/Claude/claude_desktop_config.json`. Other hosts and
+versions may provide their own settings UI or location; use that host's documented
+mechanism. This is a client configuration example, not verified current host UI.
+After saving, reload the connection using the host, inspect its discovered tools,
+and try a permitted request. A local launch and an authenticated remote result
+are separate checks.
 
 ## Choose a command
 
@@ -45,6 +62,21 @@ For a locally built standalone file, use an absolute path:
 [Build instructions](ARCHITECTURE.md#build-and-release) describe how that file is
 created. The checked-in release workflow does not build/upload a standalone asset;
 this guide does not assume a download exists at an old release URL.
+
+If a Windows host cannot launch `npx` directly, the retained command-shell
+example is below. It changes how the local program is launched, not the API key
+or server policy; host/OS integration has not been exercised in this docs review.
+
+```json
+{
+  "mcpServers": {
+    "airframe": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@airframeai/mcp-client", "--api-key", "YOUR_API_KEY_HERE"]
+    }
+  }
+}
+```
 
 Keep credentials in the host's private local configuration. `--api-key` is a
 command argument, so treat configuration and process diagnostics as sensitive.
@@ -82,7 +114,7 @@ Tool availability comes from the server, not a fixed list embedded in the bridge
 
 | Symptom | Inspect |
 | --- | --- |
-| Command not found | Node/npm or installed binary PATH in the host process, not just an interactive shell |
+| Command not found | Node/npm or installed binary PATH in the host process, not just an interactive shell; for Windows `npx`, see the command-shell example above |
 | `--api-key is required` | A nonempty argument value; no environment-variable fallback exists |
 | `--server-url` rejected | URL syntax/scheme and the literal hostname restrictions in the CLI |
 | HTTP 401/403 | Key/environment, endpoint OAuth-only policy, and server authorization |
