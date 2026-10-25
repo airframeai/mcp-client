@@ -19,10 +19,14 @@ drift from the server.
 
 ## Start here
 
-- [CUSTOMER_SETUP.md](CUSTOMER_SETUP.md): stdio-host configuration, credentials, and troubleshooting.
-- [ARCHITECTURE.md](ARCHITECTURE.md): source map, protocol behavior, tests, and build/release paths.
-- [src/index.ts](src/index.ts): CLI parser, URL checks, bridge, and executable entrypoint.
-- [package.json](package.json): package name, binary, engine declaration, dependencies, and scripts.
+- [Customer setup](https://github.com/airframeai/mcp-client/blob/main/CUSTOMER_SETUP.md): stdio-host configuration, credentials, and troubleshooting.
+- [Architecture](https://github.com/airframeai/mcp-client/blob/main/ARCHITECTURE.md): source map, protocol behavior, tests, and build/release paths.
+- [src/index.ts](https://github.com/airframeai/mcp-client/blob/main/src/index.ts): CLI parser, URL checks, bridge, and executable entrypoint.
+- [package.json](https://github.com/airframeai/mcp-client/blob/main/package.json): package name, binary, engine declaration, dependencies, and scripts.
+
+The guide and source links open the repository. The npm package includes the
+built client and this README; the separate guides and TypeScript source are not
+packaged alongside it.
 
 ## Configuration example
 
@@ -54,7 +58,7 @@ HTTP/OAuth connections do not require this bridge.
 | `--help`, `-h` | Prints help and exits without starting the bridge; no API key is needed. |
 
 The CLI does not read an API-key environment variable. Supply the supported
-argument through the host configuration. See the [architecture guide](ARCHITECTURE.md)
+argument through the host configuration. See the [architecture guide](https://github.com/airframeai/mcp-client/blob/main/ARCHITECTURE.md)
 for the URL check's scope, JSON/SSE handling, and error behavior.
 
 ## Development
